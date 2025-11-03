@@ -1,4 +1,4 @@
-name: Deploy to AWS EKS
+name: Deploy Node.js App
 
 on:
   push:
@@ -7,6 +7,8 @@ on:
 env:
   AWS_REGION: eu-north-1
   IMAGE_REPO: simple-js-app
+  ECR_REGISTRY: 473550160103.dkr.ecr.eu-north-1.amazonaws.com  # Replace with your ECR URL
+  ANSIBLE_PRIVATE_KEY: ${{ secrets.ANSIBLE_PRIVATE_KEY }}      # Private key for SSH
 
 jobs:
   build-deploy:
@@ -17,7 +19,25 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # Step 1️⃣ Configure AWS credentials
+      # Step 1️⃣ Install Ansible
+      - name: Install Ansible
+        run: |
+          sudo apt update
+          sudo apt install -y ansible python3-pip
+          pip3 install boto3  # required for AWS modules
+
+      # Step 2️⃣ Setup SSH key for Ansible
+      - name: Configure SSH key
+        run: |
+          mkdir -p ~/.ssh
+          echo "${ANSIBLE_PRIVATE_KEY}" > ~/.ssh/my-key.pem
+          chmod 600 ~/.ssh/my-key.pem
+
+      # Step 3️⃣ Run Ansible playbook for local/EC2 setup
+      - name: Run Ansible Playbook
+        run: ansible-playbook -i ansible/hosts.ini ansible/deploy-nodejs-app.yml
+
+      # Step 4️⃣ Configure AWS credentials
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -25,45 +45,47 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 2️⃣ Terraform Init & Apply
+      # Step 5️⃣ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.7.0
 
+      # Step 6️⃣ Terraform Init
       - name: Terraform Init
         working-directory: terraform
         run: terraform init
 
+      # Step 7️⃣ Terraform Apply
       - name: Terraform Apply
         working-directory: terraform
         run: terraform apply -auto-approve
 
-      # Step 3️⃣ Log in to Amazon ECR
+      # Step 8️⃣ Log in to Amazon ECR
       - name: Log in to Amazon ECR
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 4️⃣ Build Docker image
+      # Step 9️⃣ Build Docker image
       - name: Build Docker image
         run: |
           IMAGE_TAG=${{ github.sha }}
-          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          docker build -t $ECR_REGISTRY/${{ env.IMAGE_REPO }}:$IMAGE_TAG .
-          docker tag $ECR_REGISTRY/${{ env.IMAGE_REPO }}:$IMAGE_TAG $ECR_REGISTRY/${{ env.IMAGE_REPO }}:latest
+          docker build -t ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO }}:$IMAGE_TAG .
+          docker tag ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO }}:$IMAGE_TAG ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO }}:latest
 
-      # Step 5️⃣ Push Docker image to ECR
+      # Step 🔟 Push Docker image to ECR
       - name: Push Docker image
         run: |
           IMAGE_TAG=${{ github.sha }}
-          ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
-          docker push $ECR_REGISTRY/${{ env.IMAGE_REPO }}:$IMAGE_TAG
-          docker push $ECR_REGISTRY/${{ env.IMAGE_REPO }}:latest
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO }}:$IMAGE_TAG
+          docker push ${{ env.ECR_REGISTRY }}/${{ env.IMAGE_REPO }}:latest
 
-      # Step 6️⃣ Update kubeconfig
+      # Step 1️⃣1️⃣ Update kubeconfig
       - name: Update kubeconfig
         run: |
           aws eks update-kubeconfig --name ${{ secrets.EKS_CLUSTER_NAME }} --region ${{ env.AWS_REGION }}
 
-      # Step 7️⃣ Apply Kubernetes manifests
+      # Step 1️⃣2️⃣ Apply Kubernetes manifests
       - name: Deploy to EKS
         run: |
           kubectl apply -f kubernetes/deployment.yaml
