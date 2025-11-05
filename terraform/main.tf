@@ -1,4 +1,6 @@
 terraform {
+  required_version = ">= 1.5.0"
+
   required_providers {
     aws = {
       source  = "hashicorp/aws"
@@ -11,85 +13,110 @@ provider "aws" {
   region = var.aws_region
 }
 
-############################################
-# DATA SOURCES
-############################################
+# -----------------------------
+# VPC and Networking
+# -----------------------------
 
-# Use existing VPC
-data "aws_vpc" "selected" {
-  id = "vpc-09192546bb7779694"
-}
-
-# Use existing subnets in that VPC
-data "aws_subnets" "existing" {
-  filter {
-    name   = "vpc-id"
-    values = [data.aws_vpc.selected.id]
-  }
-}
-
-# Existing ECR repository
-data "aws_ecr_repository" "app" {
-  name = var.ecr_name
-}
-
-############################################
-# IAM ROLE FOR EKS
-############################################
-
-# EKS assume role policy
-data "aws_iam_policy_document" "eks_assume_role" {
-  statement {
-    actions = ["sts:AssumeRole"]
-    principals {
-      type        = "Service"
-      identifiers = ["eks.amazonaws.com"]
-    }
-  }
-}
-
-# Random suffix to avoid duplicate names
-resource "random_id" "suffix" {
-  byte_length = 2
-}
-
-# IAM role for EKS cluster
-resource "aws_iam_role" "eks_cluster_role" {
-  name               = "${var.eks_role_name}-${random_id.suffix.hex}"
-  assume_role_policy = data.aws_iam_policy_document.eks_assume_role.json
-}
-
-# Attach EKS managed policies
-resource "aws_iam_role_policy_attachment" "cluster_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKSClusterPolicy"
-  role       = aws_iam_role.eks_cluster_role.name
-}
-
-resource "aws_iam_role_policy_attachment" "vpc_cni_policy" {
-  policy_arn = "arn:aws:iam::aws:policy/AmazonEKS_CNI_Policy"
-  role       = aws_iam_role.eks_cluster_role.name
-}
-
-############################################
-# EKS CLUSTER
-############################################
-
-resource "aws_eks_cluster" "eks" {
-  name     = "${var.eks_cluster_name}-${random_id.suffix.hex}"
-  role_arn = aws_iam_role.eks_cluster_role.arn
-
-  vpc_config {
-    subnet_ids             = data.aws_subnets.existing.ids
-    endpoint_public_access = true
-  }
-
-  depends_on = [
-    aws_iam_role_policy_attachment.cluster_policy,
-    aws_iam_role_policy_attachment.vpc_cni_policy
-  ]
+resource "aws_vpc" "main" {
+  cidr_block           = "10.0.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
 
   tags = {
-    Name        = "EKS-Cluster"
-    Environment = "Development"
+    Name = "${var.project_name}-vpc"
   }
+}
+
+resource "aws_subnet" "public" {
+  vpc_id                  = aws_vpc.main.id
+  cidr_block              = "10.0.1.0/24"
+  map_public_ip_on_launch = true
+  availability_zone       = data.aws_availability_zones.available.names[0]
+
+  tags = {
+    Name = "${var.project_name}-public-subnet"
+  }
+}
+
+data "aws_availability_zones" "available" {}
+
+resource "aws_internet_gateway" "igw" {
+  vpc_id = aws_vpc.main.id
+
+  tags = {
+    Name = "${var.project_name}-igw"
+  }
+}
+
+resource "aws_route_table" "public" {
+  vpc_id = aws_vpc.main.id
+
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.igw.id
+  }
+
+  tags = {
+    Name = "${var.project_name}-public-rt"
+  }
+}
+
+resource "aws_route_table_association" "public_assoc" {
+  subnet_id      = aws_subnet.public.id
+  route_table_id = aws_route_table.public.id
+}
+
+# -----------------------------
+# Security Group
+# -----------------------------
+
+resource "aws_security_group" "default" {
+  vpc_id = aws_vpc.main.id
+  name   = "${var.project_name}-sg"
+
+  ingress {
+    from_port   = 80
+    to_port     = 80
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  ingress {
+    from_port   = 22
+    to_port     = 22
+    protocol    = "tcp"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  egress {
+    from_port   = 0
+    to_port     = 0
+    protocol    = "-1"
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
+  tags = {
+    Name = "${var.project_name}-sg"
+  }
+}
+
+# -----------------------------
+# ECR Repository
+# -----------------------------
+
+resource "aws_ecr_repository" "app_repo" {
+  name                 = var.ecr_repo_name
+  image_tag_mutability = "MUTABLE"
+
+  image_scanning_configuration {
+    scan_on_push = true
+  }
+
+  tags = {
+    Name = "${var.project_name}-ecr"
+  }
+}
+
+output "ecr_repository_url" {
+  value = aws_ecr_repository.app_repo.repository_url
 }

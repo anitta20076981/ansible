@@ -1,14 +1,19 @@
-output "eks_cluster_name" {
-  description = "EKS cluster name (with random suffix)"
-  value       = aws_eks_cluster.eks.name
+output "vpc_id" {
+  description = "VPC ID"
+  value       = aws_vpc.main.id
 }
 
-output "ecr_repository_uri" {
-  description = "URI of the existing ECR repository"
-  value       = data.aws_ecr_repository.app.repository_url
+output "public_subnet_id" {
+  description = "Public Subnet ID"
+  value       = aws_subnet.public.id
 }
 
-output "iam_role_name" {
-  description = "Name of the IAM role used for the EKS cluster"
-  value       = aws_iam_role.eks_cluster_role.name
+output "security_group_id" {
+  description = "Default Security Group ID"
+  value       = aws_security_group.default.id
+}
+
+output "ecr_repository_url" {
+  description = "ECR repository URL"
+  value       = aws_ecr_repository.app_repo.repository_url
 }

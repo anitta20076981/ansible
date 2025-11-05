@@ -1,19 +1,17 @@
 variable "aws_region" {
-  description = "AWS Region"
+  description = "AWS region to deploy resources in"
+  type        = string
   default     = "eu-north-1"
 }
 
-variable "eks_cluster_name" {
-  description = "EKS cluster name"
-  default     = "terraform-eks-cluster"
+variable "project_name" {
+  description = "Name prefix for resources"
+  type        = string
+  default     = "simple-js-app"
 }
 
-variable "eks_role_name" {
-  description = "EKS IAM role name"
-  default     = "terraform-eks-cluster-role"
-}
-
-variable "ecr_name" {
-  description = "ECR repository name"
+variable "ecr_repo_name" {
+  description = "Name of the ECR repository"
+  type        = string
   default     = "simple-js-app"
 }
