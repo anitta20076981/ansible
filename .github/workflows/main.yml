@@ -1,4 +1,4 @@
-name: Deploy JS App to ECS
+name: Deploy JS App with Terraform
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  deploy:
+  terraform-deploy:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -14,7 +14,7 @@ jobs:
       DOCKER_IMAGE_TAG: latest
 
     steps:
-      # 1️⃣ Checkout code
+      # 1️⃣ Checkout repo
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -37,36 +37,39 @@ jobs:
         run: terraform init
         working-directory: terraform
 
-      # 5️⃣ Terraform Plan & Apply
+      # 5️⃣ Import existing ECR repo if missing
+      - name: Import ECR repository if missing
+        run: |
+          terraform state list | grep aws_ecr_repository.app_repo || \
+          terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
+        working-directory: terraform
+
+      # 6️⃣ Terraform Plan
+      - name: Terraform Plan
+        run: terraform plan
+        working-directory: terraform
+
+      # 7️⃣ Terraform Apply
       - name: Terraform Apply
         run: terraform apply -auto-approve
         working-directory: terraform
 
-      # 6️⃣ Login to ECR
+      # 8️⃣ Login to ECR
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
           docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-      # 7️⃣ Build Docker image
+      # 9️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 8️⃣ Tag Docker image for ECR
+      # 🔟 Tag Docker image for ECR
       - name: Tag Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 9️⃣ Push Docker image to ECR
+      # 1️⃣1️⃣ Push Docker image to ECR
       - name: Push Docker image
         run: |
           docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
-
-      # 🔟 Update ECS service to use new image
-      - name: Update ECS Service
-        run: |
-          aws ecs update-service \
-            --cluster your-ecs-cluster-name \
-            --service your-ecs-service-name \
-            --force-new-deployment \
-            --region ${{ secrets.AWS_REGION }}
