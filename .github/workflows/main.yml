@@ -1,4 +1,4 @@
-name: Deploy JS App to EC2
+name: Deploy JS App to EC2 via Terraform
 
 on:
   push:
@@ -7,9 +7,6 @@ on:
 env:
   AWS_REGION: eu-north-1
   IMAGE_REPO: simple-js-app
-  EC2_HOST: ${{ secrets.EC2_HOST }}
-  EC2_USER: ec2-user
-  EC2_KEY: ${{ secrets.EC2_KEY }} # base64-encoded private key
 
 jobs:
   build-and-deploy:
@@ -28,7 +25,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 2️⃣ Set up Docker Buildx for multi-arch builds
+      # Step 2️⃣ Set up Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -37,8 +34,8 @@ jobs:
         id: login-ecr
         uses: aws-actions/amazon-ecr-login@v2
 
-      # Step 4️⃣ Build multi-arch Docker image
-      - name: Build Docker image
+      # Step 4️⃣ Build and push Docker image to ECR
+      - name: Build and Push Docker Image
         run: |
           IMAGE_TAG=${{ github.sha }}
           ECR_REGISTRY=${{ steps.login-ecr.outputs.registry }}
@@ -47,29 +44,18 @@ jobs:
             -t $ECR_REGISTRY/${{ env.IMAGE_REPO }}:latest \
             --push .
 
-      # Step 5️⃣ SSH into EC2 and run Ansible playbook
-      - name: SSH and run Ansible
-        uses: appleboy/ssh-action@v0.1.6
+      # Step 5️⃣ Setup Terraform
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
         with:
-          host: ${{ env.EC2_HOST }}
-          username: ${{ env.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            # Navigate to your playbook directory
-            cd /home/ec2-user/ansible-js-app
+          terraform_version: 1.5.6
 
-            # Run the Ansible playbook to update the container
-            ansible-playbook deploy.yml
+      # Step 6️⃣ Terraform Init
+      - name: Terraform Init
+        working-directory: terraform
+        run: terraform init
 
-      # Step 6️⃣ Optional: Pull latest Docker container manually (if needed)
-      - name: Pull and restart container on EC2
-        uses: appleboy/ssh-action@v0.1.6
-        with:
-          host: ${{ env.EC2_HOST }}
-          username: ${{ env.EC2_USER }}
-          key: ${{ secrets.EC2_KEY }}
-          script: |
-            docker pull 891089795316.dkr.ecr.eu-north-1.amazonaws.com/simple-js-app:latest
-            docker stop simple-js-app || true
-            docker rm simple-js-app || true
-            docker run -d --name simple-js-app -p 3000:3000 891089795316.dkr.ecr.eu-north-1.amazonaws.com/simple-js-app:latest
+      # Step 7️⃣ Terraform Apply
+      - name: Terraform Apply
+        working-directory: terraform
+        run: terraform apply -auto-approve
