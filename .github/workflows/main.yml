@@ -1,4 +1,4 @@
-name: Deploy JS App with Terraform and Docker
+name: Deploy JS App with Terraform
 
 on:
   push:
@@ -6,16 +6,17 @@ on:
       - main
 
 jobs:
-  deploy:
+  terraform-deploy:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
       ECR_REPO_NAME: simple-js-app
       DOCKER_IMAGE_TAG: latest
-      ECR_REGISTRY: ${{ secrets.ECR_REGISTRY }}
+      EC2_USER: ec2-user
+      EC2_HOST: ${{ secrets.EC2_HOST }}
 
     steps:
-      # 1️⃣ Checkout code
+      # 1️⃣ Checkout repo
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -27,7 +28,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3️⃣ Setup Terraform
+      # 3️⃣ Install Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
@@ -38,64 +39,70 @@ jobs:
         run: terraform init
         working-directory: terraform
 
-      # 5️⃣ Terraform Plan
+      # 5️⃣ Import existing ECR repo if missing
+      - name: Import ECR repository if missing
+        run: |
+          terraform state list | grep aws_ecr_repository.app_repo || \
+          terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
+        working-directory: terraform
+
+      # 6️⃣ Terraform Plan
       - name: Terraform Plan
         run: terraform plan
         working-directory: terraform
 
-      # 6️⃣ Terraform Apply
+      # 7️⃣ Terraform Apply
       - name: Terraform Apply
         run: terraform apply -auto-approve
         working-directory: terraform
 
-      # 7️⃣ Login to ECR
-      - name: Login to Amazon ECR
+      # 8️⃣ Login to ECR
+      - name: Login to ECR
         run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-          docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-      # 8️⃣ Build Docker image
+      # 9️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 9️⃣ Tag Docker image for ECR
+      # 🔟 Tag Docker image for ECR
       - name: Tag Docker image
         run: |
-          docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} \
-          ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 🔟 Push Docker image to ECR
-      - name: Push Docker image to ECR
+      # 1️⃣1️⃣ Push Docker image to ECR
+      - name: Push Docker image
         run: |
-          docker push ${{ env.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣1️⃣ Deploy to EC2
-      - name: Deploy on EC2
+      # 1️⃣2️⃣ Deploy Docker container to EC2
+      - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.6
         with:
           host: ${{ secrets.EC2_HOST }}
-          username: ${{ secrets.EC2_USER }}
+          username: ${{ env.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          port: 22
           script: |
-            # Install Docker if not present
+            # Install Docker if missing
             if ! command -v docker &> /dev/null; then
               sudo dnf update -y
-              sudo dnf install -y docker
+              sudo dnf install docker -y
               sudo systemctl start docker
               sudo systemctl enable docker
             fi
 
-            # Login to ECR from EC2
-            aws ecr get-login-password --region ${{ env.AWS_REGION }} | \
-              sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+            # Login to ECR on EC2
+            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+              sudo docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-            # Pull latest Docker image
-            sudo docker pull ${{ env.ECR_REGISTRY }}/simple-js-app:latest
+            # Pull latest image
+            sudo docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
 
-            # Stop existing container
+            # Stop existing container if running
             sudo docker stop simple-js-app || true
             sudo docker rm simple-js-app || true
 
             # Run new container
-            sudo docker run -d --name simple-js-app -p 80:3000 \
-              ${{ env.ECR_REGISTRY }}/simple-js-app:latest
+            sudo docker run -d --name simple-js-app -p 80:3000 ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
