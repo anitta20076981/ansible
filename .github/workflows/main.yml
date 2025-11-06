@@ -1,4 +1,4 @@
-name: Deploy JS App with Terraform
+name: Deploy JS App with Terraform and EC2
 
 on:
   push:
@@ -73,3 +73,22 @@ jobs:
       - name: Push Docker image
         run: |
           docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+
+      # 1️⃣2️⃣ Deploy container on EC2
+      - name: Deploy to EC2
+        uses: appleboy/ssh-action@v0.1.6
+        with:
+          host: ${{ secrets.SERVER_IP }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
+            docker stop simple-js-app || true
+            docker rm simple-js-app || true
+            docker run -d --name simple-js-app -p 3000:3000 ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
+
+      # 1️⃣3️⃣ Show live app URL
+      - name: Show Live App URL
+        run: |
+          echo "🚀 Your live app is at: ${{ secrets.LIVE_APP_URL }}"
+          echo "::notice::🔗 [Open App](${{ secrets.LIVE_APP_URL}})"
