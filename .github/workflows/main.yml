@@ -73,3 +73,9 @@ jobs:
       - name: Push Docker image
         run: |
           docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+
+      # 1️⃣2️⃣ Show Live App URL
+      - name: Show Live App URL
+        run: |
+          echo "🚀 Your live app is at: ${{ secrets.LIVE_APP_URL }}"
+          echo "::notice::🔗 [Open App](${{ secrets.LIVE_APP_URL }})"
