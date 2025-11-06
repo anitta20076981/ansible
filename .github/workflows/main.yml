@@ -40,8 +40,8 @@ jobs:
       # 5️⃣ Import existing ECR repo if missing
       - name: Import ECR repository if missing
         run: |
-          terraform state list | findstr aws_ecr_repository.app_repo || \
-          terraform import aws_ecr_repository.app_repo ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}
+          terraform state list | grep aws_ecr_repository.app_repo || \
+          terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
         working-directory: terraform
 
       # 6️⃣ Terraform Plan
