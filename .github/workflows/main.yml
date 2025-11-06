@@ -32,23 +32,27 @@ jobs:
         with:
           terraform_version: 1.7.0
 
-      # 4️⃣ Initialize Terraform
+      # 4️⃣ Terraform Init
       - name: Terraform Init
         run: terraform init
+        working-directory: terraform
 
-      # 5️⃣ Import existing ECR repo if not in state
+      # 5️⃣ Import existing ECR repo if missing
       - name: Import ECR repository if missing
         run: |
           terraform state list | grep aws_ecr_repository.app_repo || \
           terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
+        working-directory: terraform
 
       # 6️⃣ Terraform Plan
       - name: Terraform Plan
         run: terraform plan
+        working-directory: terraform
 
       # 7️⃣ Terraform Apply
       - name: Terraform Apply
         run: terraform apply -auto-approve
+        working-directory: terraform
 
       # 8️⃣ Log in to ECR
       - name: Login to ECR
