@@ -1,4 +1,4 @@
-name: Deploy JS App with Terraform and ECR
+name: Deploy JS App via SSM
 
 on:
   push:
@@ -6,7 +6,7 @@ on:
       - main
 
 jobs:
-  terraform-deploy:
+  deploy:
     runs-on: ubuntu-latest
     env:
       AWS_REGION: ${{ secrets.AWS_REGION }}
@@ -14,7 +14,7 @@ jobs:
       DOCKER_IMAGE_TAG: latest
 
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout repository
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -26,63 +26,42 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3️⃣ Install Terraform
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v2
-        with:
-          terraform_version: 1.7.0
+      # 3️⃣ Build Docker image
+      - name: Build Docker image
+        run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 4️⃣ Terraform Init
-      - name: Terraform Init
-        run: terraform init
-        working-directory: terraform
-
-      # 5️⃣ Import existing ECR repo if missing
-      - name: Import ECR repository if missing
-        run: |
-          terraform state list | grep aws_ecr_repository.app_repo || \
-          terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
-        working-directory: terraform
-
-      # 6️⃣ Terraform Plan
-      - name: Terraform Plan
-        run: terraform plan
-        working-directory: terraform
-
-      # 7️⃣ Terraform Apply
-      - name: Terraform Apply
-        run: terraform apply -auto-approve
-        working-directory: terraform
-
-      # 8️⃣ Login to ECR
+      # 4️⃣ Login to ECR
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
           docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-      # 9️⃣ Build Docker image
-      - name: Build Docker image
-        run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
-
-      # 🔟 Tag Docker image for ECR
+      # 5️⃣ Tag Docker image for ECR
       - name: Tag Docker image
         run: |
-          docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} \
+          ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣1️⃣ Push Docker image to ECR
+      # 6️⃣ Push Docker image to ECR
       - name: Push Docker image
         run: |
           docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣2️⃣ SSH into EC2 and update container
-      - name: Update remote server container
-        uses: appleboy/ssh-action@v0.1.6
+      # 7️⃣ Update EC2 container via SSM (no PEM key needed)
+      - name: Update EC2 container via SSM
+        uses: aws-actions/aws-ssm-run-command@v1
         with:
-          host: ${{ secrets.SERVER_IP }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          script: |
-            docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
-            docker stop simple-js-app || true
-            docker rm simple-js-app || true
-            docker run -d --name simple-js-app -p 80:3000 ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
+          targets: "i-0b60ebc87bb72baa2"        # Your EC2 instance ID
+          document-name: "AWS-RunShellScript"
+          parameters: |
+            commands:
+              - echo "Logging into ECR..."
+              - aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+                docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
+              - echo "Pulling latest Docker image..."
+              - docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
+              - echo "Stopping old container..."
+              - docker stop simple-js-app || true
+              - docker rm simple-js-app || true
+              - echo "Running new container..."
+              - docker run -d --name simple-js-app -p 3000:3000 ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
