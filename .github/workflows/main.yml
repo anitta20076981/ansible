@@ -1,4 +1,4 @@
-name: Deploy JS App with Terraform
+name: Deploy JS App with Terraform and Docker
 
 on:
   push:
@@ -20,7 +20,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2️⃣ Configure AWS credentials
+      # 2️⃣ Configure AWS credentials in workflow
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -28,7 +28,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3️⃣ Install Terraform
+      # 3️⃣ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
@@ -56,28 +56,24 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: terraform
 
-      # 8️⃣ Login to ECR
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
-          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
-
-      # 9️⃣ Build Docker image
+      # 8️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 🔟 Tag Docker image for ECR
+      # 9️⃣ Tag Docker image for ECR
       - name: Tag Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣1️⃣ Push Docker image to ECR
+      # 🔟 Push Docker image to ECR
       - name: Push Docker image
         run: |
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
           docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣2️⃣ Deploy Docker container to EC2
-      - name: Deploy to EC2
+      # 1️⃣1️⃣ Deploy Docker container to EC2
+      - name: Deploy Docker container to EC2
         uses: appleboy/ssh-action@v0.1.6
         with:
           host: ${{ secrets.EC2_HOST }}
@@ -93,16 +89,21 @@ jobs:
               sudo systemctl enable docker
             fi
 
-            # Login to ECR on EC2
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            # Export AWS credentials for EC2
+            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            export AWS_DEFAULT_REGION=${{ secrets.AWS_REGION }}
+
+            # Login to ECR
+            aws ecr get-login-password --region $AWS_DEFAULT_REGION | \
               sudo docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-            # Pull latest image
+            # Pull the latest Docker image
             sudo docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
 
-            # Stop existing container if running
+            # Stop and remove existing container if any
             sudo docker stop simple-js-app || true
             sudo docker rm simple-js-app || true
 
-            # Run new container
+            # Run the new container
             sudo docker run -d --name simple-js-app -p 80:3000 ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
