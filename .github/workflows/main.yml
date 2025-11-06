@@ -25,7 +25,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ env.AWS_REGION }}
 
-      # Step 2️⃣ Set up Docker Buildx for multi-arch builds
+      # Step 2️⃣ Set up Docker Buildx
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
 
@@ -44,18 +44,18 @@ jobs:
             -t $ECR_REGISTRY/${{ env.IMAGE_REPO }}:latest \
             --push .
 
-      # Step 5️⃣ Set up Terraform
-      - name: Set up Terraform
+      # Step 5️⃣ Setup Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.5.6
 
-      # Step 6️⃣ Initialize Terraform
+      # Step 6️⃣ Terraform Init
       - name: Terraform Init
-        working-directory: ./terraform
+        working-directory: terraform
         run: terraform init
 
-      # Step 7️⃣ Apply Terraform to deploy EC2 and Docker
+      # Step 7️⃣ Terraform Apply
       - name: Terraform Apply
-        working-directory: ./terraform
+        working-directory: terraform
         run: terraform apply -auto-approve
