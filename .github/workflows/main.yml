@@ -9,7 +9,7 @@ jobs:
   terraform-deploy:
     runs-on: ubuntu-latest
     env:
-      AWS_REGION: eu-north-1
+      AWS_REGION: ${{ secrets.AWS_REGION }}
       ECR_REPO_NAME: simple-js-app
       DOCKER_IMAGE_TAG: latest
 
@@ -24,7 +24,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ env.AWS_REGION }}
+          aws-region: ${{ secrets.AWS_REGION }}
 
       # 3️⃣ Install Terraform
       - name: Setup Terraform
@@ -40,8 +40,8 @@ jobs:
       # 5️⃣ Import existing ECR repo if missing
       - name: Import ECR repository if missing
         run: |
-          terraform state list | grep aws_ecr_repository.app_repo || \
-          terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
+          terraform state list | findstr aws_ecr_repository.app_repo || \
+          terraform import aws_ecr_repository.app_repo ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}
         working-directory: terraform
 
       # 6️⃣ Terraform Plan
@@ -54,10 +54,11 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: terraform
 
-      # 8️⃣ Log in to ECR
+      # 8️⃣ Login to ECR
       - name: Login to ECR
         run: |
-          aws ecr get-login-password --region ${{ env.AWS_REGION }} | docker login --username AWS --password-stdin ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com
+          aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+          docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
       # 9️⃣ Build Docker image
       - name: Build Docker image
@@ -66,9 +67,9 @@ jobs:
       # 🔟 Tag Docker image for ECR
       - name: Tag Docker image
         run: |
-          docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
 
       # 1️⃣1️⃣ Push Docker image to ECR
       - name: Push Docker image
         run: |
-          docker push ${{ secrets.AWS_ACCOUNT_ID }}.dkr.ecr.${{ env.AWS_REGION }}.amazonaws.com/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
+          docker push ${{ secrets.ECR_REGISTRY }}/${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }}
