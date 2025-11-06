@@ -18,7 +18,7 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2️⃣ Configure AWS credentials
+      # 2️⃣ Configure AWS credentials on GitHub runner
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -26,7 +26,7 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3️⃣ Install Terraform
+      # 3️⃣ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
@@ -54,7 +54,7 @@ jobs:
         run: terraform apply -auto-approve
         working-directory: terraform
 
-      # 8️⃣ Login to ECR (on GitHub runner)
+      # 8️⃣ Login to ECR on GitHub runner
       - name: Login to ECR
         run: |
           aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
@@ -81,28 +81,27 @@ jobs:
           host: ${{ secrets.EC2_HOST }}
           username: ${{ secrets.EC2_USER }}
           key: ${{ secrets.EC2_SSH_KEY }}
+          envs: |
+            AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
+            AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
+            AWS_REGION=${{ secrets.AWS_REGION }}
           script: |
             echo "Installing Docker (if not installed)..."
             if ! command -v docker &> /dev/null; then
-              echo "Docker not found. Installing..."
               sudo dnf update -y
               sudo dnf install docker -y
               sudo systemctl start docker
               sudo systemctl enable docker
-            else
-              echo "Docker is already installed"
             fi
 
-            export PATH=$PATH:/usr/bin:/usr/local/bin
-
             echo "Logging into ECR..."
-            aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
+            aws ecr get-login-password --region $AWS_REGION | \
               sudo docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
             echo "Pulling latest Docker image..."
             sudo docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
 
-            echo "Stopping existing container (if any)..."
+            echo "Stopping existing container..."
             sudo docker stop simple-js-app || true
             sudo docker rm simple-js-app || true
 
