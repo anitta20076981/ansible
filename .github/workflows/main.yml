@@ -125,5 +125,9 @@ jobs:
         run: |
           echo "✅ Deployment successful!"
           echo "App URL: http://${{ env.EC2_PUBLIC_IP }}:${{ env.HOST_PORT }}"
-        run: terraform apply -auto-approve
+        
+
+
+
+        
         working-directory: terraform
