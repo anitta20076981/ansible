@@ -14,7 +14,6 @@ env:
   HOST_PORT: 3000
   APP_PORT: 3000
   EC2_USER: ec2-user
-  EC2_HOST: ${{ secrets.EC2_HOST }}
 
 jobs:
   deploy:
@@ -46,11 +45,12 @@ jobs:
 
       # 5️⃣ Terraform Apply
       - name: Terraform Apply
-        run: terraform apply -auto-approve \
-              -var project_name=${{ env.ECR_REPO_NAME }} \
-              -var aws_region=${{ env.AWS_REGION }} \
-              -var ecr_repo_name=${{ env.ECR_REPO_NAME }} \
-              -var ec2_public_ip=${{ env.EC2_HOST }}
+        run: |
+          terraform apply -auto-approve \
+            -var "project_name=${{ env.ECR_REPO_NAME }}" \
+            -var "aws_region=${{ env.AWS_REGION }}" \
+            -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}" \
+            -var "ec2_public_ip=${{ secrets.EC2_HOST }}"
         working-directory: ${{ env.TF_DIR }}
 
       # 6️⃣ Extract Terraform outputs
