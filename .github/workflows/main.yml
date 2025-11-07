@@ -49,8 +49,7 @@ jobs:
           terraform apply -auto-approve \
             -var "project_name=${{ env.ECR_REPO_NAME }}" \
             -var "aws_region=${{ env.AWS_REGION }}" \
-            -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}" \
-            -var "ec2_public_ip=${{ secrets.EC2_HOST }}"
+            -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}"
         working-directory: ${{ env.TF_DIR }}
 
       # 6️⃣ Extract Terraform outputs
