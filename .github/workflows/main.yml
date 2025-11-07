@@ -7,13 +7,16 @@ on:
 
 env:
   TF_DIR: terraform
-  AWS_REGION: ${{ secrets.AWS_REGION }}
+  AWS_REGION: eu-north-1
   ECR_REPO_NAME: simple-js-app
+  ECR_URI: 891089795316.dkr.ecr.eu-north-1.amazonaws.com/simple-js-app
+  ECR_REGISTRY: 891089795316.dkr.ecr.eu-north-1.amazonaws.com
   DOCKER_IMAGE_TAG: latest
   CONTAINER_NAME: simple-js-app
-  HOST_PORT: 3000
-  APP_PORT: 3000
+  HOST_PORT: 80
+  APP_PORT: 8090
   EC2_USER: ec2-user
+  EC2_HOST: ${{ secrets.EC2_HOST }}
 
 jobs:
   deploy:
@@ -30,7 +33,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       # 3️⃣ Setup Terraform
       - name: Setup Terraform
@@ -43,57 +46,36 @@ jobs:
         run: terraform init
         working-directory: ${{ env.TF_DIR }}
 
-      # 5️⃣ Import existing ECR repository if it exists
-      - name: Import existing ECR repository if missing
-        run: |
-          if ! terraform state list | grep aws_ecr_repository.app_repo; then
-            if aws ecr describe-repositories --repository-names ${{ env.ECR_REPO_NAME }}; then
-              terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
-            fi
-          fi
-        working-directory: ${{ env.TF_DIR }}
-
-      # 6️⃣ Terraform Apply
+      # 5️⃣ Terraform Apply
       - name: Terraform Apply
-        run: |
-          terraform apply -auto-approve \
+        run: terraform apply -auto-approve \
             -var "project_name=${{ env.ECR_REPO_NAME }}" \
             -var "aws_region=${{ env.AWS_REGION }}" \
             -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}"
         working-directory: ${{ env.TF_DIR }}
 
-      # 7️⃣ Extract Terraform outputs
-      - name: Extract Terraform outputs
-        id: tf_output
-        run: |
-          terraform output -json > tf_output.json
-          echo "EC2_PUBLIC_IP=$(jq -r .ec2_public_ip.value tf_output.json)" >> $GITHUB_ENV
-          echo "ECR_URI=$(jq -r .ecr_repository_uri.value tf_output.json)" >> $GITHUB_ENV
-          echo "ECR_REGISTRY=$(jq -r .ecr_repository_uri.value tf_output.json | cut -d'/' -f1)" >> $GITHUB_ENV
-        working-directory: ${{ env.TF_DIR }}
-
-      # 8️⃣ Build Docker image
+      # 6️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 9️⃣ Authenticate Docker to AWS ECR
+      # 7️⃣ Authenticate Docker to ECR
       - name: Authenticate Docker to ECR
         run: |
           echo "Logging into AWS ECR..."
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
           | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-      # 🔟 Tag and push Docker image
+      # 8️⃣ Tag and push Docker image
       - name: Tag and Push Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
           docker push ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣1️⃣ Deploy Docker container to EC2
+      # 9️⃣ Deploy Docker container to EC2
       - name: Deploy Docker container to EC2
         uses: appleboy/ssh-action@v0.1.6
         with:
-          host: ${{ env.EC2_PUBLIC_IP }}
+          host: ${{ env.EC2_HOST }}
           username: ${{ env.EC2_USER }}
           key: ${{ secrets.AWS_PRIVATE_KEY }}
           port: 22
@@ -106,31 +88,26 @@ jobs:
               sudo systemctl enable docker
             fi
 
-            # Export AWS credentials for ECR login
-            export AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}
-            export AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}
-            export AWS_DEFAULT_REGION=${{ env.AWS_REGION }}
-
             # Login to ECR
-            aws ecr get-login-password --region $AWS_DEFAULT_REGION | \
-              sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
+            aws ecr get-login-password --region ${{ env.AWS_REGION }} \
+            | sudo docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-            # Stop and remove existing container if any
+            # Stop and remove existing container
             sudo docker stop ${{ env.CONTAINER_NAME }} || true
             sudo docker rm ${{ env.CONTAINER_NAME }} || true
 
-            # Pull latest Docker image
+            # Pull latest image
             sudo docker pull ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-            # Run the container
+            # Run container
             sudo docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               -p ${{ env.HOST_PORT }}:${{ env.APP_PORT }} \
               --restart unless-stopped \
               ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣2️⃣ Show live app URL
+      # 1️⃣0️⃣ Show live app URL
       - name: Show live app URL
         run: |
           echo "✅ Deployment successful!"
-          echo "App URL: http://${{ env.EC2_PUBLIC_IP }}:${{ env.HOST_PORT }}"
+          echo "App URL: http://${{ env.EC2_HOST }}:${{ env.HOST_PORT }}"
