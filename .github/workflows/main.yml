@@ -46,12 +46,9 @@ jobs:
         run: terraform init
         working-directory: ${{ env.TF_DIR }}
 
-      # 5️⃣ Terraform Apply
+      # 5️⃣ Terraform Apply (fixed syntax)
       - name: Terraform Apply
-        run: terraform apply -auto-approve \
-            -var "project_name=${{ env.ECR_REPO_NAME }}" \
-            -var "aws_region=${{ env.AWS_REGION }}" \
-            -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}"
+        run: terraform apply -auto-approve -var "project_name=${{ env.ECR_REPO_NAME }}" -var "aws_region=${{ env.AWS_REGION }}" -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}"
         working-directory: ${{ env.TF_DIR }}
 
       # 6️⃣ Build Docker image
@@ -106,7 +103,7 @@ jobs:
               --restart unless-stopped \
               ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣0️⃣ Show live app URL
+      # 🔟 Show live app URL
       - name: Show live app URL
         run: |
           echo "✅ Deployment successful!"
