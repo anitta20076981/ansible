@@ -39,7 +39,7 @@ jobs:
         run: terraform init
         working-directory: terraform
 
-      # 5️⃣ Import existing ECR repository (if missing)
+      # 5️⃣ Import existing ECR repository if missing
       - name: Import ECR repository if missing
         run: |
           terraform state list | grep aws_ecr_repository.app_repo || \
@@ -93,20 +93,32 @@ jobs:
               sudo systemctl enable docker
             fi
 
-            # Ensure Docker is running
             sudo systemctl start docker
 
             # Login to ECR
             aws ecr get-login-password --region ${{ secrets.AWS_REGION }} | \
               sudo docker login --username AWS --password-stdin ${{ secrets.ECR_REGISTRY }}
 
-            # Pull latest image
+            # Pull latest Docker image
             sudo docker pull ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
 
-            # Stop and remove any existing container
+            # Stop and remove old container
             sudo docker stop simple-js-app || true
             sudo docker rm simple-js-app || true
 
-            # Run new container (auto-restart on reboot)
+            # Run new container
             sudo docker run -d --name simple-js-app --restart always -p 80:3000 \
               ${{ secrets.ECR_REGISTRY }}/simple-js-app:latest
+
+            # Optional: show last 20 logs for verification
+            sudo docker logs simple-js-app | tail -n 20
+
+      # 1️⃣3️⃣ Show EC2 public URL in workflow logs
+      - name: Display EC2 URL
+        run: |
+          EC2_IP=$(aws ec2 describe-instances \
+            --region ${{ secrets.AWS_REGION }} \
+            --filters "Name=instance-state-name,Values=running" \
+            --query "Reservations[*].Instances[*].PublicIpAddress" \
+            --output text)
+          echo "✅ Your app is live at: http://$EC2_IP/"
