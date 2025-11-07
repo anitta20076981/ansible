@@ -46,29 +46,45 @@ jobs:
         run: terraform init
         working-directory: ${{ env.TF_DIR }}
 
-      # 5️⃣ Terraform Apply (fixed syntax)
+      # 5️⃣ Import existing ECR repository (if exists)
+      - name: Import existing ECR repo
+        run: |
+          if terraform state list | grep -q "aws_ecr_repository.app_repo"; then
+            echo "ECR repository already imported in state."
+          else
+            # Check if repository exists in AWS
+            if aws ecr describe-repositories --repository-names ${{ env.ECR_REPO_NAME }} >/dev/null 2>&1; then
+              echo "Importing existing ECR repository into Terraform state..."
+              terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
+            else
+              echo "ECR repository does not exist yet. Terraform will create it."
+            fi
+          fi
+        working-directory: ${{ env.TF_DIR }}
+
+      # 6️⃣ Terraform Apply
       - name: Terraform Apply
         run: terraform apply -auto-approve -var "project_name=${{ env.ECR_REPO_NAME }}" -var "aws_region=${{ env.AWS_REGION }}" -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}"
         working-directory: ${{ env.TF_DIR }}
 
-      # 6️⃣ Build Docker image
+      # 7️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 7️⃣ Authenticate Docker to ECR
+      # 8️⃣ Authenticate Docker to ECR
       - name: Authenticate Docker to ECR
         run: |
           echo "Logging into AWS ECR..."
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
           | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-      # 8️⃣ Tag and push Docker image
+      # 9️⃣ Tag and push Docker image
       - name: Tag and Push Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
           docker push ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 9️⃣ Deploy Docker container to EC2
+      # 🔟 Deploy Docker container to EC2
       - name: Deploy Docker container to EC2
         uses: appleboy/ssh-action@v0.1.6
         with:
@@ -103,7 +119,7 @@ jobs:
               --restart unless-stopped \
               ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 🔟 Show live app URL
+      # 1️⃣1️⃣ Show live app URL
       - name: Show live app URL
         run: |
           echo "✅ Deployment successful!"
