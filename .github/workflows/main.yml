@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout code
+      # 1️⃣ Checkout repo
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -43,13 +43,11 @@ jobs:
         run: terraform init
         working-directory: ${{ env.TF_DIR }}
 
-      # 5️⃣ Import ECR repository if it already exists
+      # 5️⃣ Import existing ECR repository if it exists
       - name: Import existing ECR repository if missing
         run: |
           if ! terraform state list | grep aws_ecr_repository.app_repo; then
-            echo "🔹 Checking if ECR repository exists..."
             if aws ecr describe-repositories --repository-names ${{ env.ECR_REPO_NAME }}; then
-              echo "🔹 Importing existing ECR repository into Terraform state..."
               terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
             fi
           fi
@@ -78,13 +76,14 @@ jobs:
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 9️⃣ Authenticate Docker to ECR
+      # 9️⃣ Authenticate Docker to AWS ECR
       - name: Authenticate Docker to ECR
         run: |
+          echo "Logging into AWS ECR..."
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
           | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-      # 🔟 Tag and Push Docker image
+      # 🔟 Tag and push Docker image
       - name: Tag and Push Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
