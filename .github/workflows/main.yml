@@ -17,6 +17,7 @@ env:
   APP_PORT: 8090
   EC2_USER: ec2-user
   EC2_HOST: ${{ secrets.EC2_HOST }}
+  EC2_PUBLIC_IP: 52.91.215.159
 
 jobs:
   deploy:
@@ -39,7 +40,7 @@ jobs:
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
-          terraform_version: 1.7.0
+          terraform_version: 1.9.8
 
       # 4️⃣ Terraform Init
       - name: Terraform Init
