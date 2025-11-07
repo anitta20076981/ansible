@@ -1,4 +1,4 @@
-name: Deploy JS App with Terraform, Docker, and EC2
+name: Deploy JS App with Terraform and Docker
 
 on:
   push:
@@ -16,16 +16,18 @@ env:
   EC2_USER: ec2-user
   EC2_HOST: ${{ secrets.EC2_HOST }}
 
+
+
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
-    steps:
+ steps:
       # 1️⃣ Checkout repo
       - name: Checkout code
         uses: actions/checkout@v3
 
-      # 2️⃣ Configure AWS credentials in workflow
+ # 2️⃣ Configure AWS credentials in workflow
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
@@ -33,31 +35,26 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # 3️⃣ Setup Terraform
+  # 3️⃣ Setup Terraform
       - name: Setup Terraform
         uses: hashicorp/setup-terraform@v2
         with:
           terraform_version: 1.7.0
 
-      # 4️⃣ Terraform Init
+# 4️⃣ Terraform Init
       - name: Terraform Init
         run: terraform init
         working-directory: terraform
 
-      # 5️⃣ Import existing ECR repo if missing
-      - name: Import ECR repository if missing
-        run: |
-          terraform state list | grep aws_ecr_repository.app_repo || \
-          terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
-        working-directory: terraform
-
-      # 6️⃣ Terraform Plan
-      - name: Terraform Plan
-        run: terraform plan
-        working-directory: terraform
-
-      # 7️⃣ Terraform Apply
+ # 5️⃣ Terraform Apply
       - name: Terraform Apply
+        run: terraform apply -auto-approve \
+            -var project_name=${{ env.ECR_REPO_NAME }} \
+            -var aws_region=${{ env.AWS_REGION }} \
+            -var ecr_repo_name=${{ env.ECR_REPO_NAME }} \
+            -var ec2_public_ip=${{ env.EC2_HOST }}
+        working-directory: ${{ env.TF_DIR }}
+
   # 6️⃣ Extract Terraform outputs
       - name: Extract Terraform outputs
         id: tf_output
@@ -68,24 +65,26 @@ jobs:
           echo "ECR_REGISTRY=$(jq -r .ecr_repository_uri.value tf_output.json | cut -d'/' -f1)" >> $GITHUB_ENV
         working-directory: ${{ env.TF_DIR }}
 
-      # 7️⃣ Build Docker image
+  # 8️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 8️⃣ Authenticate Docker to ECR
+ # 8️⃣ Authenticate Docker to ECR
       - name: Authenticate Docker to ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
           | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-      # 9️⃣ Tag and push Docker image
+
+
+ # 9️⃣ Tag and push Docker image
       - name: Tag and Push Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} \
             ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
           docker push ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 🔟 Deploy Docker container to EC2
+ # 🔟 Deploy Docker container to EC2
       - name: Deploy Docker container to EC2
         uses: appleboy/ssh-action@v0.1.6
         with:
@@ -119,15 +118,3 @@ jobs:
               -p ${{ env.HOST_PORT }}:${{ env.APP_PORT }} \
               --restart unless-stopped \
               ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
-
-      # 1️⃣1️⃣ Show live app URL
-      - name: Show live app URL
-        run: |
-          echo "✅ Deployment successful!"
-          echo "App URL: http://${{ env.EC2_PUBLIC_IP }}:${{ env.HOST_PORT }}"
-        
-
-
-
-        
-        working-directory: terraform
