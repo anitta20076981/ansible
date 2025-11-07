@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1️⃣ Checkout repo
+      # 1️⃣ Checkout code
       - name: Checkout code
         uses: actions/checkout@v3
 
@@ -43,7 +43,19 @@ jobs:
         run: terraform init
         working-directory: ${{ env.TF_DIR }}
 
-      # 5️⃣ Terraform Apply
+      # 5️⃣ Import ECR repository if it already exists
+      - name: Import existing ECR repository if missing
+        run: |
+          if ! terraform state list | grep aws_ecr_repository.app_repo; then
+            echo "🔹 Checking if ECR repository exists..."
+            if aws ecr describe-repositories --repository-names ${{ env.ECR_REPO_NAME }}; then
+              echo "🔹 Importing existing ECR repository into Terraform state..."
+              terraform import aws_ecr_repository.app_repo ${{ env.ECR_REPO_NAME }}
+            fi
+          fi
+        working-directory: ${{ env.TF_DIR }}
+
+      # 6️⃣ Terraform Apply
       - name: Terraform Apply
         run: |
           terraform apply -auto-approve \
@@ -52,7 +64,7 @@ jobs:
             -var "ecr_repo_name=${{ env.ECR_REPO_NAME }}"
         working-directory: ${{ env.TF_DIR }}
 
-      # 6️⃣ Extract Terraform outputs
+      # 7️⃣ Extract Terraform outputs
       - name: Extract Terraform outputs
         id: tf_output
         run: |
@@ -62,23 +74,23 @@ jobs:
           echo "ECR_REGISTRY=$(jq -r .ecr_repository_uri.value tf_output.json | cut -d'/' -f1)" >> $GITHUB_ENV
         working-directory: ${{ env.TF_DIR }}
 
-      # 7️⃣ Build Docker image
+      # 8️⃣ Build Docker image
       - name: Build Docker image
         run: docker build -t ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} .
 
-      # 8️⃣ Authenticate Docker to ECR
+      # 9️⃣ Authenticate Docker to ECR
       - name: Authenticate Docker to ECR
         run: |
           aws ecr get-login-password --region ${{ env.AWS_REGION }} \
           | docker login --username AWS --password-stdin ${{ env.ECR_REGISTRY }}
 
-      # 9️⃣ Tag and Push Docker image
+      # 🔟 Tag and Push Docker image
       - name: Tag and Push Docker image
         run: |
           docker tag ${{ env.ECR_REPO_NAME }}:${{ env.DOCKER_IMAGE_TAG }} ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
           docker push ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 🔟 Deploy Docker container to EC2
+      # 1️⃣1️⃣ Deploy Docker container to EC2
       - name: Deploy Docker container to EC2
         uses: appleboy/ssh-action@v0.1.6
         with:
@@ -118,7 +130,7 @@ jobs:
               --restart unless-stopped \
               ${{ env.ECR_URI }}:${{ env.DOCKER_IMAGE_TAG }}
 
-      # 1️⃣1️⃣ Show live app URL
+      # 1️⃣2️⃣ Show live app URL
       - name: Show live app URL
         run: |
           echo "✅ Deployment successful!"
